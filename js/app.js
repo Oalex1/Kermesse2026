@@ -16,6 +16,7 @@ const state = {
   personas: [],   // [{id, nombres, apellidos}]
   pedidos: [],    // [{id, cliente_nombre, estado, notas, comprobante_url, created_at, pedido_items:[{cantidad, precio_unit, menu:{...}}]}]
   filtro: "Todos",
+  busqueda: "",
   comprobanteFile: null,
 };
 
@@ -52,6 +53,7 @@ function setupTabs() {
 function switchTab(name) {
   $all(".tab").forEach((s) => s.classList.toggle("is-active", s.id === `tab-${name}`));
   $all(".tab-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.tab === name));
+  if (name === "nuevo") updateDisponibles(); // refresca los máximos por si cambió el stock
 }
 
 /* ---------------------------------------------------------
@@ -126,6 +128,7 @@ function refreshLive() {
     renderDashboard();
     renderPedidosList();
     renderMenuEditor();
+    if ($("#tab-nuevo").classList.contains("is-active")) updateDisponibles();
     $("#last-update").textContent = "Actualizado ahora mismo";
   }, 400);
 }
@@ -166,6 +169,17 @@ function computeStats() {
     platoTop,
     vendidosPorPlato,
   };
+}
+
+function disponiblesMap() {
+  const stats = computeStats();
+  const map = {};
+  for (const m of state.menu) {
+    const info = stats.vendidosPorPlato[m.id];
+    const vendidos = info ? info.vendidos : 0;
+    map[m.id] = Math.max(m.stock_inicial - vendidos, 0);
+  }
+  return map;
 }
 
 function itemsTotal(pedido) {
@@ -233,32 +247,68 @@ function renderPersonasDatalist() {
 
 function renderItemsFields() {
   const wrap = $("#items-fields");
-  wrap.innerHTML = state.menu.map((m) => `
-    <div class="item-row" style="--dish-color:${m.color}" data-menu-id="${m.id}">
+  const disp = disponiblesMap();
+  wrap.innerHTML = state.menu.map((m) => {
+    const disponible = disp[m.id] ?? 0;
+    return `
+    <div class="item-row" style="--dish-color:${m.color}" data-menu-id="${m.id}" data-disponible="${disponible}">
       <span class="item-icon">${m.icono}</span>
       <div class="item-info">
         <div class="item-name">${escapeHtml(m.plato)}</div>
-        <div class="item-price">${bs(m.precio)} c/u</div>
+        <div class="item-price">${bs(m.precio)} c/u · <span class="item-disp">${disponible > 0 ? `Quedan ${disponible}` : "Agotado"}</span></div>
       </div>
       <div class="stepper">
         <button type="button" class="step-minus" aria-label="Restar">−</button>
-        <input type="number" min="0" value="0" inputmode="numeric" class="qty-input">
-        <button type="button" class="step-plus" aria-label="Sumar">+</button>
+        <input type="number" min="0" max="${disponible}" value="0" inputmode="numeric" class="qty-input" ${disponible === 0 ? "disabled" : ""}>
+        <button type="button" class="step-plus" aria-label="Sumar" ${disponible === 0 ? "disabled" : ""}>+</button>
       </div>
     </div>
-  `).join("");
+  `;
+  }).join("");
 
   wrap.querySelectorAll(".item-row").forEach((row) => {
     const input = row.querySelector(".qty-input");
-    row.querySelector(".step-plus").addEventListener("click", () => {
-      input.value = Math.max(0, Number(input.value || 0) + 1);
+    const plusBtn = row.querySelector(".step-plus");
+    row.classList.toggle("is-sold-out", Number(row.dataset.disponible) === 0);
+
+    plusBtn.addEventListener("click", () => {
+      const max = Number(row.dataset.disponible);
+      const next = Number(input.value || 0) + 1;
+      if (next > max) return toast(`Ya no queda más stock (máximo ${max}).`, "error");
+      input.value = next;
       updateTotalPreview();
     });
     row.querySelector(".step-minus").addEventListener("click", () => {
       input.value = Math.max(0, Number(input.value || 0) - 1);
       updateTotalPreview();
     });
-    input.addEventListener("input", updateTotalPreview);
+    input.addEventListener("input", () => {
+      const max = Number(row.dataset.disponible);
+      if (Number(input.value) > max) input.value = max;
+      if (Number(input.value) < 0) input.value = 0;
+      updateTotalPreview();
+    });
+  });
+  updateTotalPreview();
+}
+
+// Refresca los máximos de stock en el formulario SIN borrar lo que el usuario ya escribió.
+function updateDisponibles() {
+  const disp = disponiblesMap();
+  $all("#items-fields .item-row").forEach((row) => {
+    const menuId = Number(row.dataset.menuId);
+    const disponible = disp[menuId] ?? 0;
+    row.dataset.disponible = disponible;
+    row.classList.toggle("is-sold-out", disponible === 0);
+
+    const input = row.querySelector(".qty-input");
+    const plusBtn = row.querySelector(".step-plus");
+    const dispLabel = row.querySelector(".item-disp");
+    dispLabel.textContent = disponible > 0 ? `Quedan ${disponible}` : "Agotado";
+    input.max = disponible;
+    input.disabled = disponible === 0;
+    plusBtn.disabled = disponible === 0;
+    if (Number(input.value) > disponible) input.value = disponible;
   });
   updateTotalPreview();
 }
@@ -306,6 +356,21 @@ async function handleSubmit(e) {
 
   if (!clienteNombre) return showFormMsg("Escribe el nombre del cliente.", true);
   if (items.length === 0) return showFormMsg("Agrega al menos un plato con cantidad mayor a 0.", true);
+
+  // Revalida el stock justo antes de guardar (por si cambió mientras llenaban el formulario)
+  await loadPedidos();
+  const disp = disponiblesMap();
+  for (const it of items) {
+    const disponible = disp[it.menuId] ?? 0;
+    if (it.cantidad > disponible) {
+      const menuItem = state.menu.find((m) => m.id === it.menuId);
+      updateDisponibles();
+      return showFormMsg(
+        `Ya no queda suficiente stock de "${menuItem ? menuItem.plato : "ese plato"}" (disponible: ${disponible}).`,
+        true
+      );
+    }
+  }
 
   btn.disabled = true;
   btn.textContent = "Guardando...";
@@ -392,12 +457,29 @@ function setupPedidosFilters() {
       renderPedidosList();
     });
   });
+
+  let searchTimer = null;
+  $("#search-cliente").addEventListener("input", (e) => {
+    clearTimeout(searchTimer);
+    const value = e.target.value;
+    searchTimer = setTimeout(() => {
+      state.busqueda = value.trim().toLowerCase();
+      renderPedidosList();
+    }, 200);
+  });
 }
 
 function renderPedidosList() {
   const list = $("#pedidos-list");
-  const filtrados = state.pedidos.filter((p) => state.filtro === "Todos" || p.estado === state.filtro);
+  const filtrados = state.pedidos.filter((p) => {
+    const pasaEstado = state.filtro === "Todos" || p.estado === state.filtro;
+    const pasaBusqueda = !state.busqueda || p.cliente_nombre.toLowerCase().includes(state.busqueda);
+    return pasaEstado && pasaBusqueda;
+  });
   $("#pedidos-empty").hidden = filtrados.length > 0;
+  $("#pedidos-empty").textContent = state.busqueda
+    ? `No hay pedidos de "${$("#search-cliente").value}".`
+    : "Todavía no hay pedidos registrados.";
 
   list.innerHTML = filtrados.map((p) => {
     const itemsTxt = (p.pedido_items || [])
