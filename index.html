@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kermesse 2024</title>
+<meta name="description" content="Registro de pedidos para la Kermesse 2024">
+<meta name="theme-color" content="#16241C">
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kermesse">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="offline-banner" class="banner banner--warn" hidden>
+  📡 Sin conexión. Los pedidos no se pueden cargar ni guardar hasta que vuelva internet.
+</div>
+<div id="config-banner" class="banner banner--error" hidden>
+  ⚙️ Falta conectar Supabase. Abre <code>js/config.js</code> y pega tu URL y anon key (ver README.md).
+</div>
+
+<header class="hero">
+  <div class="bunting" aria-hidden="true"></div>
+  <div class="hero-content">
+    <h1 class="hero-title">Kermesse <span>2026</span></h1>
+    <p class="hero-sub">Registro de pedidos en vivo 🎉</p>
+  </div>
+</header>
+
+<main id="app">
+
+  <!-- ============ DASHBOARD ============ -->
+  <section id="tab-dashboard" class="tab is-active">
+    <div class="stat-grid" id="stat-grid">
+      <!-- tarjetas de estadísticas, generadas por JS -->
+    </div>
+
+    <div class="section-head">
+      <h2>Platos</h2>
+      <span class="section-hint" id="last-update">—</span>
+    </div>
+    <div class="dish-grid" id="dish-grid">
+      <!-- tarjetas por plato, generadas por JS -->
+    </div>
+  </section>
+
+  <!-- ============ NUEVO PEDIDO ============ -->
+  <section id="tab-nuevo" class="tab">
+    <form id="pedido-form" class="pedido-form" autocomplete="off">
+      <label class="field">
+        <span class="field-label">Cliente</span>
+        <input list="personas-list" id="cliente-input" placeholder="Escribe o elige un nombre" required>
+        <datalist id="personas-list"></datalist>
+      </label>
+
+      <div class="field-group">
+        <span class="field-label">¿Qué pidió?</span>
+        <div id="items-fields" class="items-fields">
+          <!-- un stepper de cantidad por plato, generado por JS -->
+        </div>
+      </div>
+
+      <label class="field">
+        <span class="field-label">Estado del pago</span>
+        <select id="estado-input">
+          <option value="Pendiente">Pendiente</option>
+          <option value="Pagado">Pagado</option>
+          <option value="No Pagado">No Pagado</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Comprobante de pago (opcional)</span>
+        <input type="file" id="comprobante-input" accept="image/*" capture="environment">
+      </label>
+      <img id="comprobante-preview" class="comprobante-preview" hidden alt="Vista previa del comprobante">
+
+      <label class="field">
+        <span class="field-label">Notas</span>
+        <textarea id="notas-input" rows="2" placeholder="Ej: para llevar, mesa 4..."></textarea>
+      </label>
+
+      <div class="total-bar">
+        <span>Total</span>
+        <strong id="total-preview">Bs 0</strong>
+      </div>
+
+      <button type="submit" id="submit-btn" class="btn-primary">Registrar pedido</button>
+      <p class="form-msg" id="form-msg" hidden></p>
+    </form>
+  </section>
+
+  <!-- ============ PEDIDOS ============ -->
+  <section id="tab-pedidos" class="tab">
+    <div class="filter-row" id="filter-row">
+      <button class="chip is-active" data-filter="Todos">Todos</button>
+      <button class="chip" data-filter="Pagado">Pagado</button>
+      <button class="chip" data-filter="Pendiente">Pendiente</button>
+      <button class="chip" data-filter="No Pagado">No pagado</button>
+    </div>
+    <div id="pedidos-list" class="pedidos-list">
+      <!-- tarjetas de pedidos, generadas por JS -->
+    </div>
+    <p class="empty-state" id="pedidos-empty" hidden>Todavía no hay pedidos registrados.</p>
+  </section>
+
+  <!-- ============ MENÚ ============ -->
+  <section id="tab-menu" class="tab">
+    <p class="section-hint" style="margin-bottom:12px">
+      Ajusta aquí el stock inicial de cada plato. El resto se calcula solo.
+    </p>
+    <div id="menu-editor" class="menu-editor">
+      <!-- editor de stock, generado por JS -->
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="tab-btn is-active" data-tab="dashboard">
+    <span class="tab-icon">📊</span><span>Dashboard</span>
+  </button>
+  <button class="tab-btn" data-tab="nuevo">
+    <span class="tab-icon">➕</span><span>Pedido</span>
+  </button>
+  <button class="tab-btn" data-tab="pedidos">
+    <span class="tab-icon">📋</span><span>Pedidos</span>
+  </button>
+  <button class="tab-btn" data-tab="menu">
+    <span class="tab-icon">🍽️</span><span>Menú</span>
+  </button>
+</nav>
+
+<div id="toast" class="toast" hidden></div>
+
+<div id="image-modal" class="image-modal" hidden>
+  <button id="image-modal-close" class="image-modal-close" aria-label="Cerrar">✕</button>
+  <img id="image-modal-img" alt="Comprobante ampliado">
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
