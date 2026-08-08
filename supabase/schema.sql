@@ -1,5 +1,5 @@
 -- =========================================================
---  KERMESSE 2024 · Esquema de base de datos para Supabase
+--  KERMESSE 2026 · Esquema de base de datos para Supabase
 -- =========================================================
 -- Cómo usar:
 -- 1. Ve a tu proyecto en https://supabase.com  →  SQL Editor
@@ -80,10 +80,9 @@ create policy "items: insercion publica" on pedido_items for insert with check (
 --  Datos iniciales
 -- =========================================================
 insert into menu (plato, precio, stock_inicial, color, icono, orden) values
-  ('Pescado a la Parrilla',   50, 100, '#3AA6B9', '🐟', 1),
-  ('Chorizo Criollo',         40, 100, '#D64545', '🌭', 2),
-  ('Chancho',                 45, 100, '#E08A3E', '🐷', 3),
-  ('Pollo a la Caja China',   45, 100, '#5FA85D', '🍗', 4)
+  ('Pescado a la Parrilla',          45, 100, '#3AA6B9', '🐟', 1),
+  ('Chorizo Criollo',                35, 100, '#D64545', '🌭', 2),
+  ('Pollo o Chancho a la Caja China',45, 100, '#E08A3E', '🍗', 3)
 on conflict do nothing;
 
 insert into personas (nombres, apellidos) values
@@ -102,3 +101,41 @@ on conflict do nothing;
 -- =========================================================
 alter publication supabase_realtime add table pedidos;
 alter publication supabase_realtime add table pedido_items;
+
+-- =========================================================
+--  Políticas de Storage para el bucket "comprobantes"
+--  (el toggle "Public bucket" solo permite VER las imágenes;
+--   subir archivos necesita estas políticas aparte)
+-- =========================================================
+create policy "comprobantes: insercion publica"
+on storage.objects for insert
+to anon
+with check (bucket_id = 'comprobantes');
+
+create policy "comprobantes: lectura publica"
+on storage.objects for select
+to anon
+using (bucket_id = 'comprobantes');
+
+-- =========================================================
+--  MIGRACIÓN (solo si ya habías corrido este schema antes
+--  y quieres actualizar un proyecto que ya tiene datos)
+--  Corre este bloque UNA vez en el SQL Editor.
+-- =========================================================
+-- 1) Los pedidos que ya tenían "Chancho" pasan a contar para el plato combinado
+update pedido_items
+set menu_id = (select id from menu where plato = 'Pollo a la Caja China')
+where menu_id = (select id from menu where plato = 'Chancho');
+
+-- 2) Renombra "Pollo a la Caja China" al nuevo plato combinado
+update menu
+set plato = 'Pollo o Chancho a la Caja China'
+where plato = 'Pollo a la Caja China';
+
+-- 3) Borra "Chancho" (ya no se usa como plato aparte)
+delete from menu where plato = 'Chancho';
+
+-- 4) Ajusta los precios: todos a Bs 45, menos el Chorizo que queda en Bs 35
+--    (esto NO cambia el total de pedidos ya guardados, solo el precio para pedidos nuevos)
+update menu set precio = 45 where plato <> 'Chorizo Criollo';
+update menu set precio = 35 where plato = 'Chorizo Criollo';

@@ -1,5 +1,6 @@
 import { supabase, isConfigured } from "./supabaseClient.js";
 import { COMPROBANTES_BUCKET } from "./config.js";
+import { addPending, getAllPending, deletePending } from "./offlineQueue.js";
 
 /* ---------------------------------------------------------
    Helpers cortos
@@ -40,6 +41,7 @@ async function init() {
   await Promise.all([loadMenu(), loadPersonas(), loadPedidos()]);
   renderAll();
   subscribeRealtime();
+  if (navigator.onLine) syncPendingOrders();
 }
 
 /* ---------------------------------------------------------
@@ -61,43 +63,84 @@ function switchTab(name) {
 --------------------------------------------------------- */
 function setupOnlineBanner() {
   const banner = $("#offline-banner");
-  const update = () => { banner.hidden = navigator.onLine; };
+  const update = () => {
+    banner.hidden = navigator.onLine;
+    if (navigator.onLine) syncPendingOrders();
+  };
   window.addEventListener("online", update);
-  window.addEventListener("offline", update);
-  update();
+  window.addEventListener("offline", () => { banner.hidden = navigator.onLine; });
+  banner.hidden = navigator.onLine;
+  updatePendingBanner();
+}
+
+/* ---------------------------------------------------------
+   Guardado local (para que la app tenga qué mostrar sin internet)
+--------------------------------------------------------- */
+const CACHE_KEYS = { menu: "kermesse_cache_menu", personas: "kermesse_cache_personas", pedidos: "kermesse_cache_pedidos" };
+
+function cacheSave(key, data) {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { /* almacenamiento lleno o bloqueado: no es crítico */ }
+}
+function cacheLoad(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
 }
 
 /* ---------------------------------------------------------
    Carga de datos
+   Si no hay internet (o Supabase no responde), usa la última
+   copia guardada en el celular en vez de dejar todo vacío.
 --------------------------------------------------------- */
 async function loadMenu() {
-  const { data, error } = await supabase
-    .from("menu")
-    .select("id, plato, precio, stock_inicial, color, icono, orden")
-    .order("orden", { ascending: true });
-  if (error) return toast("No se pudo cargar el menú: " + error.message, "error");
-  state.menu = data || [];
+  if (!navigator.onLine) { state.menu = cacheLoad(CACHE_KEYS.menu); return; }
+  try {
+    const { data, error } = await supabase
+      .from("menu")
+      .select("id, plato, precio, stock_inicial, color, icono, orden")
+      .order("orden", { ascending: true });
+    if (error) throw error;
+    state.menu = data || [];
+    cacheSave(CACHE_KEYS.menu, state.menu);
+  } catch (err) {
+    state.menu = cacheLoad(CACHE_KEYS.menu);
+    if (state.menu.length === 0) toast("No se pudo cargar el menú: " + err.message, "error");
+  }
 }
 
 async function loadPersonas() {
-  const { data, error } = await supabase
-    .from("personas")
-    .select("id, nombres, apellidos")
-    .order("nombres", { ascending: true });
-  if (error) return toast("No se pudo cargar personas: " + error.message, "error");
-  state.personas = data || [];
+  if (!navigator.onLine) { state.personas = cacheLoad(CACHE_KEYS.personas); return; }
+  try {
+    const { data, error } = await supabase
+      .from("personas")
+      .select("id, nombres, apellidos")
+      .order("nombres", { ascending: true });
+    if (error) throw error;
+    state.personas = data || [];
+    cacheSave(CACHE_KEYS.personas, state.personas);
+  } catch (err) {
+    state.personas = cacheLoad(CACHE_KEYS.personas);
+  }
 }
 
 async function loadPedidos() {
-  const { data, error } = await supabase
-    .from("pedidos")
-    .select(`
-      id, cliente_nombre, estado, notas, comprobante_url, created_at,
-      pedido_items ( cantidad, precio_unit, menu ( id, plato, icono, color ) )
-    `)
-    .order("created_at", { ascending: false });
-  if (error) return toast("No se pudo cargar pedidos: " + error.message, "error");
-  state.pedidos = data || [];
+  if (!navigator.onLine) { state.pedidos = cacheLoad(CACHE_KEYS.pedidos); return; }
+  try {
+    const { data, error } = await supabase
+      .from("pedidos")
+      .select(`
+        id, cliente_nombre, estado, notas, comprobante_url, created_at,
+        pedido_items ( cantidad, precio_unit, menu ( id, plato, icono, color ) )
+      `)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    state.pedidos = data || [];
+    cacheSave(CACHE_KEYS.pedidos, state.pedidos);
+  } catch (err) {
+    state.pedidos = cacheLoad(CACHE_KEYS.pedidos);
+    if (state.pedidos.length === 0) toast("No se pudo cargar pedidos: " + err.message, "error");
+  }
 }
 
 function renderAll() {
@@ -353,11 +396,21 @@ async function handleSubmit(e) {
   const items = currentItems();
   const estado = $("#estado-input").value;
   const notas = $("#notas-input").value.trim();
+  const comprobanteFile = state.comprobanteFile;
 
   if (!clienteNombre) return showFormMsg("Escribe el nombre del cliente.", true);
   if (items.length === 0) return showFormMsg("Agrega al menos un plato con cantidad mayor a 0.", true);
 
-  // Revalida el stock justo antes de guardar (por si cambió mientras llenaban el formulario)
+  const pedidoData = { clienteNombre, items, estado, notas, comprobanteFile };
+
+  // Sin internet: directo a la cola local, ni siquiera intentamos la red.
+  if (!navigator.onLine) {
+    await queueOffline(pedidoData);
+    return;
+  }
+
+  // Con internet: revalida el stock justo antes de guardar
+  // (por si cambió mientras llenaban el formulario).
   await loadPedidos();
   const disp = disponiblesMap();
   for (const it of items) {
@@ -376,30 +429,7 @@ async function handleSubmit(e) {
   btn.textContent = "Guardando...";
 
   try {
-    let comprobanteUrl = null;
-    if (state.comprobanteFile) {
-      comprobanteUrl = await uploadComprobante(state.comprobanteFile);
-    }
-
-    const { data: pedido, error: errPedido } = await supabase
-      .from("pedidos")
-      .insert({ cliente_nombre: clienteNombre, estado, notas: notas || null, comprobante_url: comprobanteUrl })
-      .select()
-      .single();
-    if (errPedido) throw errPedido;
-
-    const rows = items.map((it) => ({
-      pedido_id: pedido.id,
-      menu_id: it.menuId,
-      cantidad: it.cantidad,
-      precio_unit: it.precio,
-    }));
-    const { error: errItems } = await supabase.from("pedido_items").insert(rows);
-    if (errItems) throw errItems;
-
-    // asegurar que el nombre quede disponible para autocompletar la próxima vez
-    await ensurePersonaExists(clienteNombre);
-
+    await submitOrderToSupabase(pedidoData);
     showFormMsg("¡Pedido registrado! 🎉", false);
     resetForm();
     await Promise.all([loadPedidos(), loadPersonas()]);
@@ -407,10 +437,108 @@ async function handleSubmit(e) {
     renderPedidosList();
     renderPersonasDatalist();
   } catch (err) {
-    showFormMsg("No se pudo guardar: " + err.message, true);
+    // Si el problema fue de red (no de datos), no perdemos el pedido: lo encolamos.
+    if (isNetworkError(err)) {
+      await queueOffline(pedidoData);
+    } else {
+      showFormMsg("No se pudo guardar: " + err.message, true);
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = "Registrar pedido";
+  }
+}
+
+function isNetworkError(err) {
+  const text = String(err && err.message ? err.message : err).toLowerCase();
+  return !navigator.onLine || text.includes("failed to fetch") || text.includes("network");
+}
+
+async function queueOffline(pedidoData) {
+  await addPending({
+    clienteNombre: pedidoData.clienteNombre,
+    items: pedidoData.items,
+    estado: pedidoData.estado,
+    notas: pedidoData.notas,
+    comprobanteBlob: pedidoData.comprobanteFile || null,
+    comprobanteName: pedidoData.comprobanteFile ? pedidoData.comprobanteFile.name : null,
+  });
+  showFormMsg("📥 Sin conexión: el pedido se guardó en el celular y se enviará solo cuando vuelva internet.", false);
+  resetForm();
+  await updatePendingBanner();
+}
+
+// La misma lógica de guardado, la usan tanto el pedido "en vivo" como la cola offline.
+async function submitOrderToSupabase({ clienteNombre, items, estado, notas, comprobanteFile }) {
+  let comprobanteUrl = null;
+  if (comprobanteFile) {
+    comprobanteUrl = await uploadComprobante(comprobanteFile);
+  }
+
+  const { data: pedido, error: errPedido } = await supabase
+    .from("pedidos")
+    .insert({ cliente_nombre: clienteNombre, estado, notas: notas || null, comprobante_url: comprobanteUrl })
+    .select()
+    .single();
+  if (errPedido) throw errPedido;
+
+  const rows = items.map((it) => ({
+    pedido_id: pedido.id,
+    menu_id: it.menuId,
+    cantidad: it.cantidad,
+    precio_unit: it.precio,
+  }));
+  const { error: errItems } = await supabase.from("pedido_items").insert(rows);
+  if (errItems) throw errItems;
+
+  await ensurePersonaExists(clienteNombre);
+}
+
+/* ---------------------------------------------------------
+   Sincronización de pedidos guardados sin conexión
+--------------------------------------------------------- */
+async function syncPendingOrders() {
+  if (!isConfigured || !navigator.onLine) return;
+  const pending = await getAllPending();
+  if (pending.length === 0) return;
+
+  toast(`Sincronizando ${pending.length} pedido(s) guardado(s) sin conexión...`, "");
+  let sincronizados = 0;
+  for (const p of pending) {
+    try {
+      await submitOrderToSupabase({
+        clienteNombre: p.clienteNombre,
+        items: p.items,
+        estado: p.estado,
+        notas: p.notas,
+        comprobanteFile: p.comprobanteBlob || null,
+      });
+      await deletePending(p.id);
+      sincronizados++;
+    } catch (err) {
+      // Sigue sin conexión de verdad, o falló por otra razón: lo dejamos para el próximo intento.
+      break;
+    }
+  }
+  if (sincronizados > 0) {
+    toast(`✅ ${sincronizados} pedido(s) sincronizado(s) con éxito.`, "ok");
+    await Promise.all([loadPedidos(), loadPersonas()]);
+    renderDashboard();
+    renderPedidosList();
+    renderPersonasDatalist();
+  }
+  await updatePendingBanner();
+}
+
+async function updatePendingBanner() {
+  const banner = $("#pending-banner");
+  if (!banner) return;
+  const pending = await getAllPending();
+  if (pending.length === 0) {
+    banner.hidden = true;
+  } else {
+    banner.hidden = false;
+    banner.textContent = `🕓 ${pending.length} pedido(s) guardado(s) en este celular, esperando internet para enviarse.`;
   }
 }
 
@@ -424,7 +552,7 @@ async function ensurePersonaExists(nombreCompleto) {
 }
 
 async function uploadComprobante(file) {
-  const ext = file.name.split(".").pop();
+  const ext = (file.name && file.name.includes(".")) ? file.name.split(".").pop() : "jpg";
   const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
   const { error } = await supabase.storage.from(COMPROBANTES_BUCKET).upload(path, file, { upsert: false });
   if (error) throw new Error("No se pudo subir el comprobante: " + error.message);
@@ -435,7 +563,9 @@ async function uploadComprobante(file) {
 function resetForm() {
   $("#pedido-form").reset();
   state.comprobanteFile = null;
-  $("#comprobante-preview").hidden = true;
+  const preview = $("#comprobante-preview");
+  preview.hidden = true;
+  preview.src = "";
   renderItemsFields();
 }
 
@@ -598,11 +728,27 @@ function toast(text, type = "") {
    Service worker (PWA)
 --------------------------------------------------------- */
 function registerServiceWorker() {
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("service-worker.js").catch(() => {});
-    });
-  }
+  if (!("serviceWorker" in navigator)) return;
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("service-worker.js").then((reg) => {
+      // Revisa si hay una versión nueva cada vez que la app vuelve a primer plano.
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") reg.update();
+      });
+      reg.update();
+    }).catch(() => {});
+  });
+
+  // En cuanto la versión nueva del service worker toma el control,
+  // recarga la página sola (así los cambios se ven sin que nadie
+  // tenga que hacer Ctrl+Shift+R).
+  let yaRecargando = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (yaRecargando) return;
+    yaRecargando = true;
+    window.location.reload();
+  });
 }
 
 /* ---------------------------------------------------------

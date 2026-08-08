@@ -4,6 +4,6 @@
 //  build.js lo convierte en js/config.js (ese sí lleva las
 //  claves de verdad) usando las Environment Variables de Vercel.
 // =========================================================
-export const SUPABASE_URL = "https://ymlikmusecaiydjvlggz.supabase.co";
-export const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltbGlrbXVzZWNhaXlkanZsZ2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYwNTQ1OTAsImV4cCI6MjEwMTYzMDU5MH0.ak3dJ21uIbDiCS8AMc2zBrXtvAt8feNjf9lqamxPdA4";
+export const SUPABASE_URL = "__SUPABASE_URL__";
+export const SUPABASE_ANON_KEY = "__SUPABASE_ANON_KEY__";
 export const COMPROBANTES_BUCKET = "comprobantes";

@@ -1,7 +1,7 @@
 {
-  "name": "Kermesse 2024 - Pedidos",
+  "name": "Kermesse 2026 - Pedidos",
   "short_name": "Kermesse",
-  "description": "Registro de pedidos en vivo para la Kermesse 2024",
+  "description": "Registro de pedidos en vivo para la Kermesse 2026",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
