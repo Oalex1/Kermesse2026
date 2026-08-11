@@ -29,6 +29,11 @@ async function init() {
   setupOnlineBanner();
   registerServiceWorker();
 
+  medirTabbar();
+  window.addEventListener("resize", medirTabbar);
+  window.addEventListener("orientationchange", medirTabbar);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(medirTabbar);
+
   if (!isConfigured) {
     $("#config-banner").hidden = false;
     return; // no seguimos sin credenciales
@@ -43,7 +48,6 @@ async function init() {
   subscribeRealtime();
   if (navigator.onLine) syncPendingOrders();
 }
-
 /* ---------------------------------------------------------
    Tabs
 --------------------------------------------------------- */
@@ -58,6 +62,12 @@ function switchTab(name) {
   if (name === "nuevo") updateDisponibles(); // refresca los máximos por si cambió el stock
 }
 
+function medirTabbar() {
+  const tabbar = document.querySelector(".tabbar");
+  if (!tabbar) return;
+  const alto = tabbar.getBoundingClientRect().height;
+  if (alto > 0) document.documentElement.style.setProperty("--tabbar-h", `${alto}px`);
+}
 /* ---------------------------------------------------------
    Banner de conexión
 --------------------------------------------------------- */
