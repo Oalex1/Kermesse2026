@@ -485,21 +485,20 @@ async function submitOrderToSupabase({ clienteNombre, items, estado, notas, comp
     comprobanteUrl = await uploadComprobante(comprobanteFile);
   }
 
-  const { data: pedido, error: errPedido } = await supabase
-    .from("pedidos")
-    .insert({ cliente_nombre: clienteNombre, estado, notas: notas || null, comprobante_url: comprobanteUrl })
-    .select()
-    .single();
-  if (errPedido) throw errPedido;
-
-  const rows = items.map((it) => ({
-    pedido_id: pedido.id,
+  const itemsPayload = items.map((it) => ({
     menu_id: it.menuId,
     cantidad: it.cantidad,
     precio_unit: it.precio,
   }));
-  const { error: errItems } = await supabase.from("pedido_items").insert(rows);
-  if (errItems) throw errItems;
+
+  const { error } = await supabase.rpc("crear_pedido", {
+    p_cliente_nombre: clienteNombre,
+    p_estado: estado,
+    p_notas: notas || null,
+    p_comprobante_url: comprobanteUrl,
+    p_items: itemsPayload,
+  });
+  if (error) throw error;
 
   await ensurePersonaExists(clienteNombre);
 }
