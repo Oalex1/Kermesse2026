@@ -45,6 +45,19 @@ button { font-family: inherit; }
 img { max-width: 100%; display: block; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+
+
+@media (max-width: 520px) {
+  .contact-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .contact-grid .field input { width: 100%; box-sizing: border-box; }
+  .raffle-box { gap: 10px; padding: 11px 12px; }
+  .raffle-quantity input { width: 78px; }
+}
+
+@media (max-width: 380px) {
+  .contact-grid { grid-template-columns: 1fr; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
@@ -394,3 +407,59 @@ main#app { max-width: 720px; margin: 0 auto; padding: 0 16px 16px; position: rel
 }
 
 /* La tabbar siempre va de borde a borde, como una app móvil normal */
+
+/* Ticket, rifas y contacto */
+.contact-group { margin-top: 8px; }
+.contact-title { display: block; margin-bottom: 2px; }
+.contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.contact-grid .field { min-width: 0; }
+
+.order-extras { margin-top: 0; }
+.raffle-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(46,125,50,.18);
+  border-radius: 14px;
+  background: rgba(46,125,50,.05);
+}
+.raffle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.raffle-info > div { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.raffle-title { font-weight: 700; font-size: 14px; }
+.raffle-price { font-size: 12px; font-weight: 700; color: var(--text-dim); }
+.raffle-hint { font-size: 11px; color: var(--text-dim); }
+.raffle-quantity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.raffle-quantity .field-label { margin: 0; }
+.raffle-quantity input {
+  width: 92px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  font-family: var(--font-body);
+  text-align: center;
+}
+.ticket-actions { margin-top:12px; padding:14px; border-radius:14px; background:#eef7f0; display:grid; gap:8px; }
+.ticket-actions > div { display:flex; flex-wrap:wrap; gap:8px; }
+.ticket-actions button { border:0; border-radius:10px; padding:9px 12px; cursor:pointer; font-weight:700; }
+.ticket-scan-overlay { position:fixed; inset:0; z-index:9999; display:grid; place-items:center; padding:20px; background:rgba(0,0,0,.72); }
+.ticket-scan-card { width:min(430px,100%); padding:28px; border-radius:20px; background:white; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.35); }
+.ticket-scan-icon { width:64px; height:64px; margin:0 auto 12px; display:grid; place-items:center; border-radius:50%; background:#e7f6e9; font-size:34px; font-weight:800; }

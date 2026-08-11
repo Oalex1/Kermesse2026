@@ -20,6 +20,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 
 <link rel="stylesheet" href="css/styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -66,9 +68,39 @@
       </label>
 
       <div class="field-group">
-        <span class="field-label">¿Qué pidió?</span>
+        <span class="field-label">¿Qué desea añadir?</span>
         <div id="items-fields" class="items-fields">
           <!-- un stepper de cantidad por plato, generado por JS -->
+        </div>
+      </div>
+
+      <div class="field-group contact-group">
+        <span class="field-label contact-title">Contacto del cliente (opcional)</span>
+        <div class="contact-grid">
+          <label class="field">
+            <span class="field-label">WhatsApp</span>
+            <input type="tel" id="whatsapp-input" placeholder="Ej: 70000000" inputmode="tel">
+          </label>
+          <label class="field">
+            <span class="field-label">Correo electrónico</span>
+            <input type="email" id="email-input" placeholder="cliente@correo.com">
+          </label>
+        </div>
+      </div>
+
+      <div class="order-extras">
+        <div class="raffle-box">
+          <div class="raffle-info">
+            <div>
+              <span class="raffle-title">🎟️ Rifas</span>
+              <span class="raffle-price">Bs 20 c/u</span>
+            </div>
+            <span class="raffle-hint">Opcional</span>
+          </div>
+          <label class="raffle-quantity">
+            <span class="field-label">Cantidad</span>
+            <input type="number" id="rifas-input" min="0" step="1" value="0" inputmode="numeric" aria-label="Cantidad de rifas">
+          </label>
         </div>
       </div>
 
@@ -138,7 +170,7 @@
     <span class="tab-icon">📊</span><span>Dashboard</span>
   </button>
   <button class="tab-btn" data-tab="nuevo">
-    <span class="tab-icon">➕</span><span>Pedido</span>
+    <span class="tab-icon">➕</span><span>Añadir</span>
   </button>
   <button class="tab-btn" data-tab="pedidos">
     <span class="tab-icon">📋</span><span>Pedidos</span>

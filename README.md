@@ -156,3 +156,7 @@ darse cuenta de que hay algo nuevo que instalar.
   actualizan mientras estás sin conexión (eso sí necesita hablar con
   Supabase).
 
+
+## 10. Envío automático de tickets
+
+La app incluye `supabase/functions/enviar-ticket/index.ts` para enviar el PDF automáticamente por Resend y WhatsApp Cloud API. Consulta `AUTOMATIC_TICKETS.md` para la configuración de secretos, plantilla de WhatsApp y despliegue.

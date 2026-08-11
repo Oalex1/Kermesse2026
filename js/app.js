@@ -19,6 +19,7 @@ const state = {
   filtro: "Todos",
   busqueda: "",
   comprobanteFile: null,
+  lastTicket: null,
 };
 
 /* ---------------------------------------------------------
@@ -44,6 +45,7 @@ async function init() {
   setupImageModal();
 
   await Promise.all([loadMenu(), loadPersonas(), loadPedidos()]);
+  await handleTicketScan();
   renderAll();
   subscribeRealtime();
   if (navigator.onLine) syncPendingOrders();
@@ -140,7 +142,7 @@ async function loadPedidos() {
     const { data, error } = await supabase
       .from("pedidos")
       .select(`
-        id, cliente_nombre, estado, notas, comprobante_url, created_at,
+        id, cliente_nombre, whatsapp, email, estado, notas, comprobante_url, rifas_cantidad, rifas_precio, ticket_token, redeemed_at, email_enviado_at, whatsapp_enviado_at, notificacion_error, created_at,
         pedido_items ( cantidad, precio_unit, menu ( id, plato, icono, color ) )
       `)
       .order("created_at", { ascending: false });
@@ -236,7 +238,8 @@ function disponiblesMap() {
 }
 
 function itemsTotal(pedido) {
-  return (pedido.pedido_items || []).reduce((sum, it) => sum + it.cantidad * Number(it.precio_unit), 0);
+  const platos = (pedido.pedido_items || []).reduce((sum, it) => sum + it.cantidad * Number(it.precio_unit), 0);
+  return platos + Number(pedido.rifas_cantidad || 0) * 20;
 }
 
 function renderDashboard() {
@@ -361,7 +364,6 @@ function updateDisponibles() {
     input.max = disponible;
     input.disabled = disponible === 0;
     plusBtn.disabled = disponible === 0;
-    if (Number(input.value) > disponible) input.value = disponible;
   });
   updateTotalPreview();
 }
@@ -375,9 +377,14 @@ function currentItems() {
   }).filter((it) => it.cantidad > 0);
 }
 
+function currentRifas() {
+  return Math.max(0, Number($("#rifas-input")?.value || 0));
+}
+
 function updateTotalPreview() {
-  const total = currentItems().reduce((sum, it) => sum + it.cantidad * it.precio, 0);
-  $("#total-preview").textContent = bs(total);
+  const platos = currentItems().reduce((sum, it) => sum + it.cantidad * it.precio, 0);
+  const rifas = currentRifas() * 20;
+  $("#total-preview").textContent = bs(platos + rifas);
 }
 
 function setupForm() {
@@ -393,6 +400,7 @@ function setupForm() {
     }
   });
 
+  $("#rifas-input").addEventListener("input", updateTotalPreview);
   $("#pedido-form").addEventListener("submit", handleSubmit);
 }
 
@@ -403,33 +411,35 @@ async function handleSubmit(e) {
   msg.hidden = true;
 
   const clienteNombre = $("#cliente-input").value.trim();
+  const whatsapp = $("#whatsapp-input").value.trim();
+  const email = $("#email-input").value.trim();
   const items = currentItems();
+  const rifasCantidad = currentRifas();
   const estado = $("#estado-input").value;
   const notas = $("#notas-input").value.trim();
   const comprobanteFile = state.comprobanteFile;
 
   if (!clienteNombre) return showFormMsg("Escribe el nombre del cliente.", true);
-  if (items.length === 0) return showFormMsg("Agrega al menos un plato con cantidad mayor a 0.", true);
+  if (items.length === 0 && rifasCantidad === 0) return showFormMsg("Agrega al menos un plato o una rifa.", true);
 
-  const pedidoData = { clienteNombre, items, estado, notas, comprobanteFile };
+  const pedidoData = { clienteNombre, whatsapp, email, items, rifasCantidad, estado, notas, comprobanteFile };
 
-  // Sin internet: directo a la cola local, ni siquiera intentamos la red.
   if (!navigator.onLine) {
     await queueOffline(pedidoData);
     return;
   }
 
-  // Con internet: revalida el stock justo antes de guardar
-  // (por si cambió mientras llenaban el formulario).
   await loadPedidos();
   const disp = disponiblesMap();
   for (const it of items) {
     const disponible = disp[it.menuId] ?? 0;
     if (it.cantidad > disponible) {
       const menuItem = state.menu.find((m) => m.id === it.menuId);
-      updateDisponibles();
+      const row = document.querySelector(`.item-row[data-menu-id="${it.menuId}"]`);
+      if (row) row.querySelector(".qty-input").value = 0;
+      updateTotalPreview();
       return showFormMsg(
-        `Ya no queda suficiente stock de "${menuItem ? menuItem.plato : "ese plato"}" (disponible: ${disponible}).`,
+        `No se pudo registrar: "${menuItem ? menuItem.plato : "ese plato"}" solo tiene ${disponible} disponible(s). La cantidad se puso en 0.`,
         true
       );
     }
@@ -439,16 +449,38 @@ async function handleSubmit(e) {
   btn.textContent = "Guardando...";
 
   try {
-    await submitOrderToSupabase(pedidoData);
+    const ticket = await submitOrderToSupabase(pedidoData);
+    state.lastTicket = { ...ticket, clienteNombre, whatsapp, email, items, rifasCantidad, estado, notas };
     showFormMsg("¡Pedido registrado! 🎉", false);
     resetForm();
     await Promise.all([loadPedidos(), loadPersonas()]);
     renderDashboard();
     renderPedidosList();
     renderPersonasDatalist();
+
+    // Genera el PDF una sola vez y lo manda automáticamente al backend.
+    try {
+      const ticketPdf = await makeTicketPdf(state.lastTicket);
+      const envio = await sendTicketAutomatically(state.lastTicket, ticketPdf.blob);
+      const partes = [];
+      if (envio?.results?.email?.ok) partes.push("correo ✓");
+      if (envio?.results?.whatsapp?.ok) partes.push("WhatsApp ✓");
+      if (partes.length) showFormMsg(`¡Pedido registrado! 🎉 Ticket enviado por ${partes.join(" y ")}.`, false);
+      else if (envio?.errors?.length) showFormMsg("Pedido registrado. El ticket quedó generado, pero no se pudo enviar automáticamente: " + envio.errors.join(" | "), true);
+      await showTicketActions(state.lastTicket, ticketPdf);
+    } catch (notifyError) {
+      console.error(notifyError);
+      showFormMsg("Pedido registrado. No se pudo completar el envío automático del ticket, pero puedes usar los botones de PDF/Compartir.", true);
+      await showTicketActions(state.lastTicket);
+    }
   } catch (err) {
-    // Si el problema fue de red (no de datos), no perdemos el pedido: lo encolamos.
-    if (isNetworkError(err)) {
+    if (err?.code === "STOCK_INSUFICIENTE" || String(err?.message || "").includes("STOCK_INSUFICIENTE")) {
+      const menuId = Number(err.menuId || 0);
+      const row = document.querySelector(`.item-row[data-menu-id="${menuId}"]`);
+      if (row) row.querySelector(".qty-input").value = 0;
+      updateTotalPreview();
+      showFormMsg("El stock cambió mientras registrabas. La cantidad afectada se puso en 0 y el pedido NO se guardó.", true);
+    } else if (isNetworkError(err)) {
       await queueOffline(pedidoData);
     } else {
       showFormMsg("No se pudo guardar: " + err.message, true);
@@ -467,7 +499,10 @@ function isNetworkError(err) {
 async function queueOffline(pedidoData) {
   await addPending({
     clienteNombre: pedidoData.clienteNombre,
+    whatsapp: pedidoData.whatsapp,
+    email: pedidoData.email,
     items: pedidoData.items,
+    rifasCantidad: pedidoData.rifasCantidad,
     estado: pedidoData.estado,
     notas: pedidoData.notas,
     comprobanteBlob: pedidoData.comprobanteFile || null,
@@ -479,11 +514,9 @@ async function queueOffline(pedidoData) {
 }
 
 // La misma lógica de guardado, la usan tanto el pedido "en vivo" como la cola offline.
-async function submitOrderToSupabase({ clienteNombre, items, estado, notas, comprobanteFile }) {
+async function submitOrderToSupabase({ clienteNombre, whatsapp, email, items, rifasCantidad, estado, notas, comprobanteFile }) {
   let comprobanteUrl = null;
-  if (comprobanteFile) {
-    comprobanteUrl = await uploadComprobante(comprobanteFile);
-  }
+  if (comprobanteFile) comprobanteUrl = await uploadComprobante(comprobanteFile);
 
   const itemsPayload = items.map((it) => ({
     menu_id: it.menuId,
@@ -491,16 +524,32 @@ async function submitOrderToSupabase({ clienteNombre, items, estado, notas, comp
     precio_unit: it.precio,
   }));
 
-  const { error } = await supabase.rpc("crear_pedido", {
+  const { data, error } = await supabase.rpc("crear_pedido", {
     p_cliente_nombre: clienteNombre,
+    p_whatsapp: whatsapp || null,
+    p_email: email || null,
     p_estado: estado,
     p_notas: notas || null,
     p_comprobante_url: comprobanteUrl,
+    p_rifas_cantidad: rifasCantidad || 0,
+    p_rifas_precio: 20,
     p_items: itemsPayload,
   });
-  if (error) throw error;
+  if (error) {
+    const text = String(error.message || "");
+    if (text.includes("STOCK_INSUFICIENTE")) {
+      const match = text.match(/STOCK_INSUFICIENTE:(\d+):(\d+)/);
+      const e = new Error(text);
+      e.code = "STOCK_INSUFICIENTE";
+      e.menuId = match ? Number(match[1]) : 0;
+      e.available = match ? Number(match[2]) : 0;
+      throw e;
+    }
+    throw error;
+  }
 
   await ensurePersonaExists(clienteNombre);
+  return data || {};
 }
 
 /* ---------------------------------------------------------
@@ -517,7 +566,10 @@ async function syncPendingOrders() {
     try {
       await submitOrderToSupabase({
         clienteNombre: p.clienteNombre,
+        whatsapp: p.whatsapp || "",
+        email: p.email || "",
         items: p.items,
+        rifasCantidad: p.rifasCantidad || 0,
         estado: p.estado,
         notas: p.notas,
         comprobanteFile: p.comprobanteBlob || null,
@@ -624,6 +676,9 @@ function renderPedidosList() {
     const itemsTxt = (p.pedido_items || [])
       .map((it) => `${it.cantidad}x <span>${escapeHtml(it.menu ? it.menu.plato : "?")}</span>`)
       .join(" · ") || "Sin platos";
+    const rifasTxt = Number(p.rifas_cantidad || 0) > 0
+      ? ` · 🎟️ ${Number(p.rifas_cantidad)} rifa(s)`
+      : "";
     const fecha = new Date(p.created_at).toLocaleString("es-BO", {
       day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
     });
@@ -639,7 +694,7 @@ function renderPedidosList() {
           </div>
           <div class="pedido-total">${bs(itemsTotal(p))}</div>
         </div>
-        <div class="pedido-items">${itemsTxt}</div>
+        <div class="pedido-items">${itemsTxt}${rifasTxt}</div>
         <div class="pedido-bottom">
           <select class="status-select" data-estado="${p.estado}" data-id="${p.id}">
             <option value="Pendiente" ${p.estado === "Pendiente" ? "selected" : ""}>Pendiente</option>
@@ -700,6 +755,134 @@ function renderMenuEditor() {
       toast("Stock actualizado", "ok");
     });
   });
+}
+
+/* ---------------------------------------------------------
+   TICKET PDF + QR + CANJE ÚNICO
+--------------------------------------------------------- */
+async function makeTicketPdf(ticket) {
+  if (!window.jspdf || !window.QRCode) throw new Error("No se pudieron cargar las librerías del ticket.");
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: "mm", format: "a6" });
+  const token = ticket.ticket_token;
+  const verifyUrl = `${location.origin}${location.pathname}?ticket=${encodeURIComponent(token)}`;
+
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(18);
+  pdf.text("KERMESSE 2026", 10, 14);
+  pdf.setFontSize(9);
+  pdf.setFont("helvetica", "normal");
+  pdf.text(`Ticket #${ticket.pedido_id || ticket.id}`, 10, 21);
+  pdf.text(new Date().toLocaleString("es-BO"), 10, 26);
+  pdf.text(`Cliente: ${ticket.clienteNombre}`, 10, 33);
+
+  let y = 41;
+  pdf.setFont("helvetica", "bold");
+  pdf.text("Detalle", 10, y); y += 6;
+  pdf.setFont("helvetica", "normal");
+  for (const it of ticket.items || []) {
+    const menuItem = state.menu.find((m) => m.id === it.menuId);
+    const nombre = menuItem?.plato || "Plato";
+    const total = it.cantidad * it.precio;
+    pdf.text(`${it.cantidad} x ${nombre}`, 10, y);
+    pdf.text(bs(total), 90, y, { align: "right" });
+    y += 5;
+  }
+  if (ticket.rifasCantidad > 0) {
+    pdf.text(`${ticket.rifasCantidad} x Rifa`, 10, y);
+    pdf.text(bs(ticket.rifasCantidad * 20), 90, y, { align: "right" });
+    y += 5;
+  }
+  const total = (ticket.items || []).reduce((s, it) => s + it.cantidad * it.precio, 0) + ticket.rifasCantidad * 20;
+  y += 2;
+  pdf.setFont("helvetica", "bold");
+  pdf.text(`TOTAL: ${bs(total)}`, 10, y);
+  y += 7;
+  pdf.setFontSize(8);
+  pdf.setFont("helvetica", "normal");
+  pdf.text("Este QR es de un solo uso.", 10, y);
+  y += 3;
+
+  const canvas = document.createElement("canvas");
+  await QRCode.toCanvas(canvas, verifyUrl, { width: 130, margin: 1 });
+  const dataUrl = canvas.toDataURL("image/png");
+  pdf.addImage(dataUrl, "PNG", 31, y + 2, 55, 55);
+  return { pdf, blob: pdf.output("blob"), filename: `ticket-${ticket.pedido_id || ticket.id}.pdf`, verifyUrl };
+}
+
+async function sendTicketAutomatically(ticket, blob) {
+  if (!ticket.ticket_token || !ticket.pedido_id) throw new Error("El pedido no tiene token de ticket.");
+  const arrayBuffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  const pdfBase64 = btoa(binary);
+  const { data, error } = await supabase.functions.invoke("enviar-ticket", {
+    body: {
+      pedido_id: ticket.pedido_id,
+      ticket_token: ticket.ticket_token,
+      pdf_base64: pdfBase64,
+    },
+  });
+  if (error) throw error;
+  return data || {};
+}
+
+async function showTicketActions(ticket, readyPdf = null) {
+  const result = readyPdf || await makeTicketPdf(ticket);
+  const blobUrl = URL.createObjectURL(result.blob);
+  const existing = $("#ticket-actions");
+  if (existing) existing.remove();
+  const box = document.createElement("div");
+  box.id = "ticket-actions";
+  box.className = "ticket-actions";
+  box.innerHTML = `<strong>Ticket listo</strong><span>Envía el PDF al cliente:</span><div><button type="button" id="ticket-download">PDF</button><button type="button" id="ticket-whatsapp">WhatsApp</button><button type="button" id="ticket-email">Correo</button><button type="button" id="ticket-share">Compartir</button></div>`;
+  $("#form-msg").after(box);
+
+  $("#ticket-download").onclick = () => {
+    const a = document.createElement("a"); a.href = blobUrl; a.download = result.filename; a.click();
+  };
+  $("#ticket-whatsapp").onclick = () => {
+    $("#ticket-download").click();
+    const phone = String(ticket.whatsapp || "").replace(/\D/g, "");
+    const text = encodeURIComponent(`Hola ${ticket.clienteNombre}, te enviamos tu ticket de la Kermesse 2026. El PDF se descargó en este dispositivo para adjuntarlo en WhatsApp.`);
+    window.open(phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`, "_blank");
+  };
+  $("#ticket-email").onclick = () => {
+    $("#ticket-download").click();
+    const subject = encodeURIComponent(`Ticket Kermesse 2026 #${ticket.pedido_id || ticket.id}`);
+    const body = encodeURIComponent(`Hola ${ticket.clienteNombre},\n\nTe enviamos tu ticket de la Kermesse 2026. El PDF se descargó en este dispositivo para adjuntarlo al correo.\n\nTotal: ${bs(totalTicket(ticket))}`);
+    window.location.href = `mailto:${ticket.email || ""}?subject=${subject}&body=${body}`;
+  };
+  $("#ticket-share").onclick = async () => {
+    const file = new File([result.blob], result.filename, { type: "application/pdf" });
+    if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+      await navigator.share({ title: "Ticket Kermesse 2026", text: `Ticket de ${ticket.clienteNombre}`, files: [file] });
+    } else {
+      $("#ticket-download").click();
+      toast("PDF descargado. Puedes adjuntarlo en WhatsApp o correo.", "ok");
+    }
+  };
+}
+
+function totalTicket(ticket) {
+  return (ticket.items || []).reduce((s, it) => s + it.cantidad * it.precio, 0) + Number(ticket.rifasCantidad || 0) * 20;
+}
+
+async function handleTicketScan() {
+  const token = new URLSearchParams(location.search).get("ticket");
+  if (!token) return;
+  const { data, error } = await supabase.rpc("canjear_ticket", { p_token: token });
+  const box = document.createElement("div");
+  box.className = "ticket-scan-overlay";
+  const ok = !error && data?.ok;
+  box.innerHTML = ok
+    ? `<div class="ticket-scan-card"><div class="ticket-scan-icon">✓</div><h2>Ticket válido</h2><p>Cliente: <strong>${escapeHtml(data.cliente_nombre)}</strong></p><p>Total: <strong>${bs(data.total)}</strong></p><p>Este QR acaba de ser marcado como <strong>CANJEADO</strong>.</p></div>`
+    : `<div class="ticket-scan-card"><div class="ticket-scan-icon">!</div><h2>QR ya utilizado</h2><p>Este ticket ya fue canjeado o no es válido.</p></div>`;
+  document.body.appendChild(box);
 }
 
 /* ---------------------------------------------------------

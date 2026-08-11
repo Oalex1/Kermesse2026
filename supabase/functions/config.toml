@@ -1,0 +1,2 @@
+[functions.enviar-ticket]
+verify_jwt = false

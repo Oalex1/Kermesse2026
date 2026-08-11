@@ -2,7 +2,7 @@
 // sube también este archivo con el número de versión aumentado en 1.
 // Eso es lo único que hace que los celulares de la gente bajen la
 // versión nueva de la app en vez de quedarse con una vieja guardada.
-const CACHE_VERSION = "v14";
+const CACHE_VERSION = "v16";
 const CACHE_NAME = `kermesse-shell-${CACHE_VERSION}`;
 
 const APP_SHELL = [
