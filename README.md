@@ -47,6 +47,8 @@ al momento de desplegar.
 
 ## 3. Probarla en tu computadora
 
+El proyecto incluye un `js/config.js` seguro con placeholders para evitar un 404 si abres la app antes de generar la configuración. Para conectarla a Supabase, sigue estos pasos:
+
 1. Copia `.env.example` a un archivo nuevo llamado `.env` y pon ahí tus
    valores reales de Supabase.
 2. Genera el config real:

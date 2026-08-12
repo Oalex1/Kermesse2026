@@ -60,13 +60,19 @@
   <section id="tab-nuevo" class="tab">
     <form id="pedido-form" class="pedido-form" autocomplete="off">
       <label class="field">
+        <span class="field-label">Vendedor</span>
+        <select id="vendedor-input" required>
+          <option value="">Selecciona un vendedor</option>
+        </select>
+      </label>
+
+      <label class="field">
         <span class="field-label">Cliente</span>
-        <input list="personas-list" id="cliente-input" placeholder="Escribe o elige un nombre" required>
-        <datalist id="personas-list"></datalist>
+        <input type="text" id="cliente-input" placeholder="Nombre del cliente" required>
       </label>
 
       <div class="field-group">
-        <span class="field-label">¿Qué pidió?</span>
+        <span class="field-label">¿Qué pidió? ¿Qué desea añadir?</span>
         <div id="items-fields" class="items-fields">
           <!-- un stepper de cantidad por plato, generado por JS -->
         </div>
@@ -99,7 +105,7 @@
 
       <button type="submit" id="submit-btn" class="btn-primary">Registrar pedido</button>
       <p class="form-msg" id="form-msg" hidden></p>
-    
+      <div class="form-bottom-spacer" aria-hidden="true"></div>
     </form>
   </section>
 
@@ -130,7 +136,7 @@
     </div>
   </section>
 
-  
+  <div class="form-bottom-spacer" aria-hidden="true"></div>
 </main>
 
 <nav class="tabbar">
@@ -138,7 +144,7 @@
     <span class="tab-icon">📊</span><span>Dashboard</span>
   </button>
   <button class="tab-btn" data-tab="nuevo">
-    <span class="tab-icon">➕</span><span>Pedido</span>
+    <span class="tab-icon">➕</span><span>Añadir</span>
   </button>
   <button class="tab-btn" data-tab="pedidos">
     <span class="tab-icon">📋</span><span>Pedidos</span>
