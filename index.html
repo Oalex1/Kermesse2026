@@ -88,6 +88,20 @@
       </label>
 
       <label class="field">
+        <span class="field-label">Método de pago</span>
+        <select id="metodo-pago-input">
+          <option value="Efectivo">Efectivo</option>
+          <option value="QR">QR</option>
+        </select>
+      </label>
+
+      <div class="field" id="pago-qr-field" hidden>
+        <span class="field-label">Escanea para pagar</span>
+        <img src="icons/qr-pago.jpg" alt="QR para pagar" class="qr-pago-img">
+        <p class="qr-pago-info">Jimenez Prado Alejandra Pamela · Cuenta 3031107489</p>
+      </div>
+
+      <label class="field">
         <span class="field-label">Comprobante de pago (opcional)</span>
         <input type="file" id="comprobante-input" accept="image/*" capture="environment">
       </label>
@@ -105,7 +119,6 @@
 
       <button type="submit" id="submit-btn" class="btn-primary">Registrar pedido</button>
       <p class="form-msg" id="form-msg" hidden></p>
-      <div class="form-bottom-spacer" aria-hidden="true"></div>
     </form>
   </section>
 
@@ -136,7 +149,6 @@
     </div>
   </section>
 
-  <div class="form-bottom-spacer" aria-hidden="true"></div>
 </main>
 
 <nav class="tabbar">

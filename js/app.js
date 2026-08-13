@@ -31,6 +31,11 @@ async function init() {
   setupOnlineBanner();
   registerServiceWorker();
 
+  medirTabbar();
+  window.addEventListener("resize", medirTabbar);
+  window.addEventListener("orientationchange", medirTabbar);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(medirTabbar);
+
   if (!isConfigured) {
     $("#config-banner").hidden = false;
     return; // no seguimos sin credenciales
@@ -53,6 +58,15 @@ function setupTabs() {
   $all(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
+}
+
+// Mide el alto real del menú de abajo y lo guarda en una variable CSS,
+// para que el espacio reservado sea exacto en cualquier celular/orientación.
+function medirTabbar() {
+  const tabbar = document.querySelector(".tabbar");
+  if (!tabbar) return;
+  const alto = tabbar.getBoundingClientRect().height;
+  if (alto > 0) document.documentElement.style.setProperty("--tabbar-h", `${alto}px`);
 }
 function switchTab(name) {
   $all(".tab").forEach((s) => s.classList.toggle("is-active", s.id === `tab-${name}`));
@@ -436,7 +450,15 @@ function setupForm() {
     }
   });
 
+  $("#metodo-pago-input").addEventListener("change", actualizarMetodoPago);
+  actualizarMetodoPago();
+
   $("#pedido-form").addEventListener("submit", handleSubmit);
+}
+
+function actualizarMetodoPago() {
+  const esQR = $("#metodo-pago-input").value === "QR";
+  $("#pago-qr-field").hidden = !esQR;
 }
 
 async function handleSubmit(e) {
@@ -449,6 +471,7 @@ async function handleSubmit(e) {
   const clienteNombre = $("#cliente-input").value.trim();
   const items = currentItems();
   const estado = $("#estado-input").value;
+  const metodoPago = $("#metodo-pago-input").value;
   const notas = $("#notas-input").value.trim();
   const comprobanteFile = state.comprobanteFile;
 
@@ -457,7 +480,7 @@ async function handleSubmit(e) {
   const rifasCantidad = currentRifas();
   if (items.length === 0 && rifasCantidad === 0) return showFormMsg("Agrega al menos un plato o compra al menos una rifa.", true);
 
-  const pedidoData = { vendedorNombre, clienteNombre, items, rifasCantidad, estado, notas, comprobanteFile };
+  const pedidoData = { vendedorNombre, clienteNombre, items, rifasCantidad, estado, metodoPago, notas, comprobanteFile };
 
   // Sin internet: directo a la cola local, ni siquiera intentamos la red.
   if (!navigator.onLine) {
@@ -523,6 +546,7 @@ async function queueOffline(pedidoData) {
     items: pedidoData.items,
     rifasCantidad: pedidoData.rifasCantidad || 0,
     estado: pedidoData.estado,
+    metodoPago: pedidoData.metodoPago,
     notas: pedidoData.notas,
     comprobanteBlob: pedidoData.comprobanteFile || null,
     comprobanteName: pedidoData.comprobanteFile ? pedidoData.comprobanteFile.name : null,
@@ -533,7 +557,7 @@ async function queueOffline(pedidoData) {
 }
 
 // La misma lógica de guardado, la usan tanto el pedido "en vivo" como la cola offline.
-async function submitOrderToSupabase({ vendedorNombre, clienteNombre, items, rifasCantidad = 0, estado, notas, comprobanteFile }) {
+async function submitOrderToSupabase({ vendedorNombre, clienteNombre, items, rifasCantidad = 0, estado, metodoPago, notas, comprobanteFile }) {
   let comprobanteUrl = null;
   if (comprobanteFile) {
     comprobanteUrl = await uploadComprobante(comprobanteFile);
@@ -543,6 +567,7 @@ async function submitOrderToSupabase({ vendedorNombre, clienteNombre, items, rif
     p_vendedor_nombre: vendedorNombre,
     p_cliente_nombre: clienteNombre,
     p_estado: estado,
+    p_metodo_pago: metodoPago || "Efectivo",
     p_notas: notas || null,
     p_comprobante_url: comprobanteUrl,
     p_rifas_cantidad: rifasCantidad,
@@ -574,6 +599,7 @@ async function syncPendingOrders() {
         items: p.items,
         rifasCantidad: p.rifasCantidad || 0,
         estado: p.estado,
+        metodoPago: p.metodoPago,
         notas: p.notas,
         comprobanteFile: p.comprobanteBlob || null,
       });
@@ -618,6 +644,7 @@ async function uploadComprobante(file) {
 function resetForm() {
   $("#pedido-form").reset();
   $("#vendedor-input").value = "";
+  actualizarMetodoPago();
   state.comprobanteFile = null;
   const preview = $("#comprobante-preview");
   preview.hidden = true;

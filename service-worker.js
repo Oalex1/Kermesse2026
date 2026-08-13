@@ -15,6 +15,7 @@ const APP_SHELL = [
   "./js/offlineQueue.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
+  "./icons/qr-pago.jpg",
   "./icons/icon-512.png",
 ];
 
