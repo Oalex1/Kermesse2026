@@ -792,23 +792,11 @@ function renderMenuEditor() {
         <div class="menu-name">${escapeHtml(m.plato)}</div>
         <div class="menu-price">${bs(m.precio)} c/u</div>
       </div>
-      <input type="number" min="0" class="stock-input" value="${m.stock_inicial}" data-id="${m.id}">
+      <span class="stock-display">${m.stock_inicial}</span>
     </div>
   `).join("");
-
-  wrap.querySelectorAll(".stock-input").forEach((input) => {
-    input.addEventListener("change", async () => {
-      const id = Number(input.dataset.id);
-      const nuevoStock = Number(input.value || 0);
-      const { error } = await supabase.from("menu").update({ stock_inicial: nuevoStock }).eq("id", id);
-      if (error) return toast("No se pudo actualizar el stock: " + error.message, "error");
-      const item = state.menu.find((m) => m.id === id);
-      if (item) item.stock_inicial = nuevoStock;
-      renderDashboard();
-      toast("Stock actualizado", "ok");
-    });
-  });
 }
+
 
 /* ---------------------------------------------------------
    IMAGE MODAL
