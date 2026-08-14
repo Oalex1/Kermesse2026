@@ -146,7 +146,8 @@ async function loadPedidos() {
     const { data, error } = await supabase
       .from("pedidos")
       .select(`
-        id, cliente_nombre, vendedor_nombre, estado, notas, comprobante_url, rifas_cantidad, rifas_precio, created_at,
+        id, cliente_nombre, vendedor_nombre, estado, metodo_pago, notas, comprobante_url,
+        rifas_cantidad, rifas_precio, ticket_token, entregado_at, created_at,
         pedido_items ( cantidad, precio_unit, menu ( id, plato, icono, color ) )
       `)
       .order("created_at", { ascending: false });
@@ -492,8 +493,22 @@ async function handleSubmit(e) {
   btn.textContent = "Guardando...";
 
   try {
-    await submitOrderToSupabase(pedidoData);
+    const result = await submitOrderToSupabase(pedidoData);
     showFormMsg("¡Pedido registrado! 🎉", false);
+    mostrarTicket({
+      cliente_nombre: pedidoData.clienteNombre,
+      vendedor_nombre: pedidoData.vendedorNombre,
+      estado: pedidoData.estado,
+      metodo_pago: pedidoData.metodoPago,
+      rifas_cantidad: pedidoData.rifasCantidad,
+      pedido_items: pedidoData.items.map((it) => ({
+        cantidad: it.cantidad,
+        precio_unit: it.precio,
+        menu: { plato: state.menu.find((m) => m.id === it.menuId)?.plato || "?" },
+      })),
+      ticket_token: result.ticket_token,
+      entregado_at: null,
+    });
     resetForm();
     await Promise.all([loadPedidos(), loadPersonas()]);
     renderDashboard();
@@ -579,6 +594,7 @@ async function submitOrderToSupabase({ vendedorNombre, clienteNombre, items, rif
   });
   if (error) throw error;
   if (!result?.pedido_id) throw new Error("Supabase no devolvió el ID del pedido.");
+  return result;
 }
 
 /* ---------------------------------------------------------
@@ -707,6 +723,9 @@ function renderPedidosList() {
     const thumb = p.comprobante_url
       ? `<img class="receipt-thumb" src="${p.comprobante_url}" data-full="${p.comprobante_url}" alt="Comprobante">`
       : "";
+    const entregaBadge = p.entregado_at
+      ? `<span class="entrega-badge is-entregado">✅ Entregado</span>`
+      : `<span class="entrega-badge">📦 Por recoger</span>`;
     return `
       <div class="pedido-card">
         <div class="pedido-top">
@@ -725,6 +744,10 @@ function renderPedidosList() {
             <option value="No Pagado" ${p.estado === "No Pagado" ? "selected" : ""}>No pagado</option>
           </select>
           ${thumb}
+        </div>
+        <div class="pedido-bottom">
+          ${entregaBadge}
+          <button type="button" class="btn-ver-ticket" data-id="${p.id}">🎟️ Ver ticket</button>
         </div>
         ${p.notas ? `<div class="pedido-notas">${escapeHtml(p.notas)}</div>` : ""}
       </div>
@@ -747,6 +770,13 @@ function renderPedidosList() {
 
   list.querySelectorAll(".receipt-thumb").forEach((img) => {
     img.addEventListener("click", () => openImageModal(img.dataset.full));
+  });
+
+  list.querySelectorAll(".btn-ver-ticket").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pedido = state.pedidos.find((p) => p.id === Number(btn.dataset.id));
+      if (pedido) mostrarTicket(pedido);
+    });
   });
 }
 
@@ -788,6 +818,50 @@ function setupImageModal() {
   $("#image-modal").addEventListener("click", (e) => {
     if (e.target.id === "image-modal") closeImageModal();
   });
+  $("#ticket-close").addEventListener("click", closeTicketModal);
+  $("#ticket-modal").addEventListener("click", (e) => {
+    if (e.target.id === "ticket-modal") closeTicketModal();
+  });
+}
+function closeTicketModal() {
+  $("#ticket-modal").hidden = true;
+}
+
+function qrImgUrl(texto) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(texto)}`;
+}
+
+function urlCanjear(token) {
+  return new URL(`canjear.html?token=${token}`, location.href).toString();
+}
+
+// Muestra el ticket de un pedido. Acepta tanto un pedido ya guardado en
+// state.pedidos (con pedido_items) como el resultado recién creado.
+function mostrarTicket(pedido) {
+  const partes = (pedido.pedido_items || [])
+    .map((it) => `<li>${it.cantidad}x ${escapeHtml(it.menu ? it.menu.plato : "?")}</li>`);
+  if (Number(pedido.rifas_cantidad || 0) > 0) partes.push(`<li>${pedido.rifas_cantidad}x Rifa</li>`);
+  const itemsHtml = partes.join("") || "<li>Sin productos</li>";
+  const total = pedidoTotal(pedido);
+  const entregado = pedido.entregado_at
+    ? `<p class="ticket-entregado">✅ Entregado el ${new Date(pedido.entregado_at).toLocaleString("es-BO")}</p>`
+    : `<p class="ticket-pendiente">📦 Pendiente de recoger</p>`;
+  const token = pedido.ticket_token;
+  const qr = token
+    ? `<img class="ticket-qr" src="${qrImgUrl(urlCanjear(token))}" alt="Código QR del ticket">
+       <p class="qr-pago-info">Muestra este código al recoger tu pedido</p>`
+    : `<p class="qr-pago-info">Este pedido todavía no tiene código de ticket.</p>`;
+
+  $("#ticket-body").innerHTML = `
+    <p><strong>Cliente:</strong> ${escapeHtml(pedido.cliente_nombre || "—")}</p>
+    <p><strong>Vendedor:</strong> ${escapeHtml(pedido.vendedor_nombre || "—")}</p>
+    <p><strong>Estado:</strong> ${escapeHtml(pedido.estado)} · ${escapeHtml(pedido.metodo_pago || "Efectivo")}</p>
+    <ul class="ticket-items">${itemsHtml}</ul>
+    <p class="ticket-total"><strong>Total: ${bs(total)}</strong></p>
+    ${entregado}
+    ${qr}
+  `;
+  $("#ticket-modal").hidden = false;
 }
 function openImageModal(url) {
   $("#image-modal-img").src = url;

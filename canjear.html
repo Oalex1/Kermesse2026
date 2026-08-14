@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Canjear ticket · Kermesse 2026</title>
+<meta name="theme-color" content="#16241C">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+<style>
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+  .canje-card {
+    max-width: 380px; width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 28px 22px; text-align: center;
+  }
+  .canje-icono { font-size: 44px; margin-bottom: 6px; }
+  .canje-titulo { font-family: var(--font-display); font-size: 20px; margin: 0 0 14px; }
+  .canje-titulo.ok { color: var(--ok-fg); }
+  .canje-titulo.warn { color: var(--warn-fg); }
+  .canje-titulo.bad { color: var(--bad-fg); }
+  .canje-body p { text-align: left; font-size: 14px; margin: 6px 0; }
+  .canje-items { list-style: none; padding: 10px 12px; margin: 12px 0; text-align: left;
+    background: var(--surface-2); border-radius: var(--radius-sm); font-size: 13px; }
+  .canje-total { font-family: var(--font-mono); color: var(--accent); font-size: 18px; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <div class="canje-card" id="canje-card">
+    <div class="canje-icono">⏳</div>
+    <h1 class="canje-titulo">Verificando ticket...</h1>
+  </div>
+  <script type="module" src="js/canjear.js"></script>
+</body>
+</html>
