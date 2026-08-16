@@ -300,6 +300,14 @@ main#app { max-width: 720px; margin: 0 auto; padding: 0 16px 16px; position: rel
 }
 .chip.is-active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
 
+.filter-row-extra { align-items: flex-end; }
+.filter-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+.filter-field-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; }
+.filter-field input, .filter-field select {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; font-family: var(--font-body);
+}
+
 .pedidos-list { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 .pedido-card {
   background: var(--surface); border: 1px solid var(--border);
@@ -428,8 +436,15 @@ main#app { max-width: 720px; margin: 0 auto; padding: 0 16px 16px; position: rel
 .entrega-badge {
   font-size: 11px; padding: 4px 10px; border-radius: 999px;
   background: var(--warn-bg); color: var(--warn-fg);
+  border: none; font-family: inherit;
 }
 .entrega-badge.is-entregado { background: var(--ok-bg); color: var(--ok-fg); }
+button.entrega-badge { cursor: pointer; }
+button.entrega-badge:hover { filter: brightness(1.1); }
+button.entrega-badge:disabled { opacity: .6; cursor: default; }
+.btn-marcar-recogido-ticket {
+  display: block; width: 100%; margin: 8px 0; padding: 10px; font-size: 14px;
+}
 .btn-ver-ticket {
   background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
   border-radius: 999px; padding: 6px 12px; font-size: 12px; cursor: pointer;

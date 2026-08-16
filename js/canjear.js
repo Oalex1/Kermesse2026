@@ -31,6 +31,10 @@ function detalleHtml(data) {
   `;
 }
 
+// Esta página es SOLO de consulta: escanear el QR muestra lo que el
+// cliente pidió, pero nunca marca el pedido como entregado. Eso solo lo
+// puede hacer el personal desde la app, con el botón "Marcar como
+// recogido" en la pestaña Pedidos.
 async function run() {
   if (!isConfigured) {
     return render("⚙️", "bad", "Falta configurar Supabase", "<p>Revisa js/config.js</p>");
@@ -41,22 +45,27 @@ async function run() {
     return render("❌", "bad", "Link inválido", "<p>Falta el código del ticket.</p>");
   }
 
-  const { data, error } = await supabase.rpc("entregar_pedido", { p_token: token });
+  const { data, error } = await supabase.rpc("ver_pedido", { p_token: token });
 
   if (error) {
-    return render("❌", "bad", "Error al canjear", `<p>${escapeHtml(error.message)}</p>`);
+    return render("❌", "bad", "Error al consultar", `<p>${escapeHtml(error.message)}</p>`);
   }
 
   if (data.reason === "NO_EXISTE") {
     return render("❌", "bad", "Ticket no válido", "<p>Este código no corresponde a ningún pedido.</p>");
   }
 
-  if (data.reason === "YA_ENTREGADO") {
+  if (data.reason === "ENTREGADO") {
     const fecha = data.entregado_at ? new Date(data.entregado_at).toLocaleString("es-BO") : "";
-    return render("⚠️", "warn", "Ya fue entregado antes", detalleHtml(data) + `<p style="opacity:.7">Entregado: ${fecha}</p>`);
+    return render(
+      "✅",
+      "ok",
+      "Este pedido ya fue recogido",
+      detalleHtml(data) + `<p style="opacity:.7">Recogido: ${fecha}</p>`
+    );
   }
 
-  render("✅", "ok", "Entregado con éxito", detalleHtml(data));
+  render("📦", "warn", "Pedido pendiente de recoger", detalleHtml(data));
 }
 
 run();

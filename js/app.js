@@ -10,6 +10,16 @@ const $all = (sel) => Array.from(document.querySelectorAll(sel));
 const bs = (n) => `Bs ${Math.round(n).toLocaleString("es-BO")}`;
 const RIFA_PRECIO = 20;
 
+// Convierte un timestamp a "YYYY-MM-DD" en hora local, para comparar
+// contra el valor de un <input type="date">.
+function fechaLocalISO(timestamp) {
+  const d = new Date(timestamp);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /* ---------------------------------------------------------
    Estado en memoria
 --------------------------------------------------------- */
@@ -18,6 +28,9 @@ const state = {
   personas: [],   // [{id, nombres, apellidos}]
   pedidos: [],    // [{id, cliente_nombre, estado, notas, comprobante_url, created_at, pedido_items:[{cantidad, precio_unit, menu:{...}}]}]
   filtro: "Todos",
+  filtroEntrega: "Todos",
+  filtroFecha: "",
+  filtroVendedor: "",
   busqueda: "",
   comprobanteFile: null,
   rifasCantidad: 0,
@@ -163,6 +176,7 @@ async function loadPedidos() {
 function renderAll() {
   renderDashboard();
   renderVendedorSelect();
+  renderVendedorFiltro();
   renderItemsFields();
   renderPedidosList();
   renderMenuEditor();
@@ -336,6 +350,19 @@ function renderVendedorSelect() {
   sel.value = seleccionado;
 }
 
+// Select del filtro "Vendedor" en la pestaña Pedidos.
+function renderVendedorFiltro() {
+  const sel = $("#filtro-vendedor");
+  if (!sel) return;
+  const seleccionado = sel.value;
+  sel.innerHTML = '<option value="">Todos los vendedores</option>' +
+    state.personas.map((p) => {
+      const nombreCompleto = `${p.nombres} ${p.apellidos}`;
+      return `<option value="${escapeHtml(nombreCompleto)}">${escapeHtml(nombreCompleto)}</option>`;
+    }).join("");
+  sel.value = seleccionado;
+}
+
 function renderItemsFields() {
   const wrap = $("#items-fields");
   const disp = disponiblesMap();
@@ -494,7 +521,6 @@ async function handleSubmit(e) {
 
   try {
     const result = await submitOrderToSupabase(pedidoData);
-    showFormMsg("¡Pedido registrado! 🎉", false);
     mostrarTicket({
       cliente_nombre: pedidoData.clienteNombre,
       vendedor_nombre: pedidoData.vendedorNombre,
@@ -508,7 +534,7 @@ async function handleSubmit(e) {
       })),
       ticket_token: result.ticket_token,
       entregado_at: null,
-    });
+    }, { esNuevo: true });
     resetForm();
     await Promise.all([loadPedidos(), loadPersonas()]);
     renderDashboard();
@@ -679,12 +705,30 @@ function showFormMsg(text, isError) {
    LISTA DE PEDIDOS
 --------------------------------------------------------- */
 function setupPedidosFilters() {
-  $all(".chip").forEach((chip) => {
+  $all("#filter-row .chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       state.filtro = chip.dataset.filter;
-      $all(".chip").forEach((c) => c.classList.toggle("is-active", c === chip));
+      $all("#filter-row .chip").forEach((c) => c.classList.toggle("is-active", c === chip));
       renderPedidosList();
     });
+  });
+
+  $all("#filter-row-entrega .chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      state.filtroEntrega = chip.dataset.filterEntrega;
+      $all("#filter-row-entrega .chip").forEach((c) => c.classList.toggle("is-active", c === chip));
+      renderPedidosList();
+    });
+  });
+
+  $("#filtro-fecha").addEventListener("change", (e) => {
+    state.filtroFecha = e.target.value; // "YYYY-MM-DD" o "" (sin filtro)
+    renderPedidosList();
+  });
+
+  $("#filtro-vendedor").addEventListener("change", (e) => {
+    state.filtroVendedor = e.target.value;
+    renderPedidosList();
   });
 
   let searchTimer = null;
@@ -705,7 +749,13 @@ function renderPedidosList() {
     const pasaBusqueda = !state.busqueda
       || p.cliente_nombre?.toLowerCase().includes(state.busqueda)
       || p.vendedor_nombre?.toLowerCase().includes(state.busqueda);
-    return pasaEstado && pasaBusqueda;
+    const pasaEntrega = state.filtroEntrega === "Todos"
+      || (state.filtroEntrega === "Recogido" ? !!p.entregado_at : !p.entregado_at);
+    const pasaFecha = !state.filtroFecha
+      || fechaLocalISO(p.created_at) === state.filtroFecha;
+    const pasaVendedor = !state.filtroVendedor
+      || p.vendedor_nombre === state.filtroVendedor;
+    return pasaEstado && pasaBusqueda && pasaEntrega && pasaFecha && pasaVendedor;
   });
   $("#pedidos-empty").hidden = filtrados.length > 0;
   $("#pedidos-empty").textContent = state.busqueda
@@ -724,8 +774,8 @@ function renderPedidosList() {
       ? `<img class="receipt-thumb" src="${p.comprobante_url}" data-full="${p.comprobante_url}" alt="Comprobante">`
       : "";
     const entregaBadge = p.entregado_at
-      ? `<span class="entrega-badge is-entregado">✅ Entregado</span>`
-      : `<span class="entrega-badge">📦 Por recoger</span>`;
+      ? `<span class="entrega-badge is-entregado">✅ Recogido</span>`
+      : `<button type="button" class="entrega-badge btn-marcar-recogido" data-id="${p.id}">📦 Por recoger</button>`;
     return `
       <div class="pedido-card">
         <div class="pedido-top">
@@ -778,6 +828,41 @@ function renderPedidosList() {
       if (pedido) mostrarTicket(pedido);
     });
   });
+
+  list.querySelectorAll(".btn-marcar-recogido").forEach((btn) => {
+    btn.addEventListener("click", () => marcarRecogido(Number(btn.dataset.id), btn));
+  });
+}
+
+// Marca un pedido como recogido desde la app (no desde el QR). El QR del
+// ticket es solo para que el cliente/staff vea qué pidió; esta es la única
+// forma de pasar un pedido de "Por recoger" a "Recogido".
+async function marcarRecogido(id, btn) {
+  const pedido = state.pedidos.find((p) => p.id === id);
+  if (!pedido) return;
+
+  if (!pedido.ticket_token) {
+    return toast("Este pedido todavía no tiene ticket", "error");
+  }
+  if (pedido.entregado_at) return;
+
+  if (btn) btn.disabled = true;
+
+  const { data, error } = await supabase.rpc("entregar_pedido", { p_token: pedido.ticket_token });
+
+  if (error) {
+    if (btn) btn.disabled = false;
+    return toast("No se pudo marcar como recogido: " + error.message, "error");
+  }
+
+  if (data.reason === "NO_EXISTE") {
+    if (btn) btn.disabled = false;
+    return toast("Ticket no válido", "error");
+  }
+
+  pedido.entregado_at = data.entregado_at;
+  toast("Pedido marcado como recogido", "ok");
+  renderPedidosList();
 }
 
 /* ---------------------------------------------------------
@@ -825,19 +910,33 @@ function urlCanjear(token) {
 
 // Muestra el ticket de un pedido. Acepta tanto un pedido ya guardado en
 // state.pedidos (con pedido_items) como el resultado recién creado.
-function mostrarTicket(pedido) {
+// opts.esNuevo = true cuando se muestra justo después de registrar el
+// pedido: ahí no se ofrece "Marcar como recogido" (eso solo se hace desde
+// la lista de Pedidos, una vez que el pedido ya existe y se va a entregar).
+function mostrarTicket(pedido, opts = {}) {
+  const esNuevo = !!opts.esNuevo;
+
+  $("#ticket-title").textContent = esNuevo ? "🎉 ¡Pedido registrado!" : "🎟️ Ticket de pedido";
+
   const partes = (pedido.pedido_items || [])
     .map((it) => `<li>${it.cantidad}x ${escapeHtml(it.menu ? it.menu.plato : "?")}</li>`);
   if (Number(pedido.rifas_cantidad || 0) > 0) partes.push(`<li>${pedido.rifas_cantidad}x Rifa</li>`);
   const itemsHtml = partes.join("") || "<li>Sin productos</li>";
   const total = pedidoTotal(pedido);
-  const entregado = pedido.entregado_at
-    ? `<p class="ticket-entregado">✅ Entregado el ${new Date(pedido.entregado_at).toLocaleString("es-BO")}</p>`
-    : `<p class="ticket-pendiente">📦 Pendiente de recoger</p>`;
+
+  let entregado;
+  if (pedido.entregado_at) {
+    entregado = `<p class="ticket-entregado">✅ Recogido el ${new Date(pedido.entregado_at).toLocaleString("es-BO")}</p>`;
+  } else if (esNuevo) {
+    entregado = `<p class="ticket-pendiente">📦 Pendiente de recoger</p>`;
+  } else {
+    entregado = `<p class="ticket-pendiente">📦 Pendiente de recoger</p>
+       <button type="button" class="btn-primary btn-marcar-recogido-ticket" data-id="${pedido.id}">Marcar como recogido</button>`;
+  }
+
   const token = pedido.ticket_token;
   const qr = token
-    ? `<img class="ticket-qr" src="${qrImgUrl(urlCanjear(token))}" alt="Código QR del ticket">
-       <p class="qr-pago-info">Muestra este código al recoger tu pedido</p>`
+    ? `<img class="ticket-qr" src="${qrImgUrl(urlCanjear(token))}" alt="Código QR del ticket">`
     : `<p class="qr-pago-info">Este pedido todavía no tiene código de ticket.</p>`;
 
   $("#ticket-body").innerHTML = `
@@ -849,6 +948,16 @@ function mostrarTicket(pedido) {
     ${entregado}
     ${qr}
   `;
+
+  const btnRecogido = $("#ticket-body .btn-marcar-recogido-ticket");
+  if (btnRecogido) {
+    btnRecogido.addEventListener("click", async () => {
+      await marcarRecogido(Number(btnRecogido.dataset.id), btnRecogido);
+      const actualizado = state.pedidos.find((p) => p.id === pedido.id);
+      if (actualizado) mostrarTicket(actualizado);
+    });
+  }
+
   $("#ticket-modal").hidden = false;
 }
 function openImageModal(url) {

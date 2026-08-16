@@ -79,19 +79,19 @@
       </div>
 
       <label class="field">
+        <span class="field-label">Método de pago</span>
+        <select id="metodo-pago-input">
+          <option value="Efectivo">Efectivo</option>
+          <option value="QR">QR</option>
+        </select>
+      </label>
+
+      <label class="field">
         <span class="field-label">Estado del pago</span>
         <select id="estado-input">
           <option value="Pendiente">Pendiente</option>
           <option value="Pagado">Pagado</option>
           <option value="No Pagado">No Pagado</option>
-        </select>
-      </label>
-
-      <label class="field">
-        <span class="field-label">Método de pago</span>
-        <select id="metodo-pago-input">
-          <option value="Efectivo">Efectivo</option>
-          <option value="QR">QR</option>
         </select>
       </label>
 
@@ -132,6 +132,23 @@
       <button class="chip" data-filter="Pagado">Pagado</button>
       <button class="chip" data-filter="Pendiente">Pendiente</button>
       <button class="chip" data-filter="No Pagado">No pagado</button>
+    </div>
+    <div class="filter-row" id="filter-row-entrega">
+      <button class="chip is-active" data-filter-entrega="Todos">Todos</button>
+      <button class="chip" data-filter-entrega="Pendiente">📦 Por recoger</button>
+      <button class="chip" data-filter-entrega="Recogido">✅ Recogido</button>
+    </div>
+    <div class="filter-row filter-row-extra">
+      <label class="filter-field">
+        <span class="filter-field-label">Fecha</span>
+        <input type="date" id="filtro-fecha">
+      </label>
+      <label class="filter-field">
+        <span class="filter-field-label">Vendedor</span>
+        <select id="filtro-vendedor">
+          <option value="">Todos los vendedores</option>
+        </select>
+      </label>
     </div>
     <div id="pedidos-list" class="pedidos-list">
       <!-- tarjetas de pedidos, generadas por JS -->
@@ -176,7 +193,7 @@
 <div id="ticket-modal" class="ticket-modal" hidden>
   <div class="ticket-card">
     <button id="ticket-close" class="ticket-close" aria-label="Cerrar">✕</button>
-    <h2 class="ticket-title">🎟️ Ticket de pedido</h2>
+    <h2 class="ticket-title" id="ticket-title">🎟️ Ticket de pedido</h2>
     <div id="ticket-body" class="ticket-body"><!-- generado por JS --></div>
   </div>
 </div>
